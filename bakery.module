@@ -96,7 +96,8 @@ function bakery_perm() {
 function bakery_user($op, &$array, &$account, $category = NULL) {
   if ($op == 'login') {
     if (variable_get('bakery_is_master', 0)) {
-      _bakery_bake_chocolatechip_cookie($account->name, $account->mail, url("user/$account->uid/edit", NULL, NULL, TRUE));
+      $init = _bakery_init_field($account->uid);
+      _bakery_bake_chocolatechip_cookie($account->name, $account->mail, $init);
     }
   }
   else if ($op == 'logout') {
@@ -203,9 +204,10 @@ function bakery_form_alter($form_id, &$form) {
   switch ($form_id) {
     case 'user_edit':
       if (!variable_get('bakery_is_master', 0) && !user_access('administer users')) {
+        $init_url = _bakery_init_field_url($form['_account']['#value']->init);
         $index = key($form);
         if (isset($form['account'])) {
-          drupal_set_message(t('You can change the name, mail, and password at <a href="!url">@master</a>.', array('!url' => check_url($form['_account']['#value']->init), '@master' => variable_get('bakery_master', 'http://drupal.org'))));
+          drupal_set_message(t('You can change the name, mail, and password at <a href="!url">@master</a>.', array('!url' => check_url($init_url), '@master' => variable_get('bakery_master', 'http://drupal.org'))));
           $form['account']['#access'] = FALSE;
           $form['account']['name']['#access'] = FALSE;
           $form['account']['pass']['#access'] = FALSE;
@@ -221,19 +223,19 @@ function bakery_form_alter($form_id, &$form) {
                 if (isset($form['picture'])) {
                   $form['picture']['picture_delete']['#access'] = FALSE;
                   $form['picture']['picture_upload']['#access'] = FALSE;
-                  $form['picture']['#description'] .= ' '. t('You can change the image at <a href="!url">@master</a>.', array('!url' => check_url($form['_account']['#value']->init)));
+                  $form['picture']['#description'] .= ' '. t('You can change the image at <a href="!url">@master</a>.', array('!url' => check_url($init_url)));
                 }
                 break;
               case 'language':
                 if (isset($form['locale'][$type])) {
                   $form['locale'][$type]['#disabled'] = TRUE;
-                  $form['locale'][$type]['#description'] .= ' '. t('You can change the language setting at <a href="!url">@master</a>.', array('!url' => check_url($form['_account']['#value']->init), '@master' => variable_get('bakery_master', 'http://drupal.org')));
+                  $form['locale'][$type]['#description'] .= ' '. t('You can change the language setting at <a href="!url">@master</a>.', array('!url' => check_url($init_url), '@master' => variable_get('bakery_master', 'http://drupal.org')));
                 }
                 break;
               case 'signature':
                 if (isset($form['signature_settings'][$type])) {
                   $form['signature_settings'][$type]['#disabled'] = TRUE;
-                  $form['signature_settings'][$type]['#description'] .= ' '. t('You can change the signature at <a href="!url">@master</a>.', array('!url' => check_url($form['_account']['#value']->init), '@master' => variable_get('bakery_master', 'http://drupal.org')));
+                  $form['signature_settings'][$type]['#description'] .= ' '. t('You can change the signature at <a href="!url">@master</a>.', array('!url' => check_url($init_url), '@master' => variable_get('bakery_master', 'http://drupal.org')));
                 }
                 break;
               default:
@@ -242,12 +244,12 @@ function bakery_form_alter($form_id, &$form) {
                 }
                 if (isset($form[$type][$type])) {
                   $form[$type][$type]['#disabled'] = TRUE;
-                  $form[$type][$type]['#description'] .= ' '. t('You can change this setting at <a href="!url">@master</a>.', array('!url' => check_url($form['_account']['#value']->init), '@master' => variable_get('bakery_master', 'http://drupal.org')));
+                  $form[$type][$type]['#description'] .= ' '. t('You can change this setting at <a href="!url">@master</a>.', array('!url' => check_url($init_url), '@master' => variable_get('bakery_master', 'http://drupal.org')));
                 }
                 // profile fields
                 if ($form[$index]['#type'] == 'fieldset' && isset($form[$index][$type])) {
                   $form[$index][$type]['#disabled'] = TRUE;
-                  $form[$index][$type]['#description'] .= ' '. t('You can change this setting at <a href="!url">@master</a>.', array('!url' => check_url($form['_account']['#value']->init), '@master' => variable_get('bakery_master', 'http://drupal.org')));
+                  $form[$index][$type]['#description'] .= ' '. t('You can change this setting at <a href="!url">@master</a>.', array('!url' => check_url($init_url), '@master' => variable_get('bakery_master', 'http://drupal.org')));
                 }
                 break;
             }
@@ -347,10 +349,12 @@ function _bakery_reset_submit($form_id, &$form_state) {
   // against forgery.
   $account = user_load(array('uid' => arg(2)));
   // If they have not logged in before we need to update the master site.
-  if ($account->login === 0) {
+  if ($account->login == 0) {
     $type = 'thinmint';
     $payload = array();
     $payload['name'] = $account->name;
+    $payload['slave'] = rtrim($base_url, '/') . '/'; // Match how slaves are set on the master.
+    $payload['uid'] = $account->uid;
     $payload['timestamp'] = $_SERVER['REQUEST_TIME'];
     $payload['type'] = $type;
     $data = bakery_bake_data($payload);
@@ -369,7 +373,7 @@ function _bakery_reset_submit($form_id, &$form_state) {
     $edit = array('name' => $user->name);
     bakery_user_authenticate_finalize($edit);
     // Inform them that they need to reset their password.
-    drupal_set_message(t('You have just used your one-time login link. It is no longer necessary to use this link to login. Please change your password at <a href="!url">@master</a>.', array('!url' => check_url($user->init), '@master' => variable_get('bakery_master', ''))));
+    drupal_set_message(t('You have just used your one-time login link. It is no longer necessary to use this link to login. Please change your password at <a href="!url">@master</a>.', array('!url' => check_url(_bakery_init_field_url($user->init)), '@master' => variable_get('bakery_master', ''))));
     drupal_goto('user/'. $user->uid);
   }
   else {
@@ -607,7 +611,8 @@ function bakery_register() {
       // Redirect to slave.
       if (!variable_get('user_email_verification', TRUE)) {
         // Create identification cookie and log user in.
-        _bakery_bake_chocolatechip_cookie($account->name, $account->mail, url("user/$account->uid/edit", NULL, NULL, TRUE));
+        $init = _bakery_init_field($account->uid);
+        _bakery_bake_chocolatechip_cookie($account->name, $account->mail, $init);
         bakery_user_external_login($account);
       }
       else {
@@ -661,7 +666,7 @@ function bakery_register_return() {
         $new = array(
             'name' => $cookie['name'],
             'mail' => $cookie['data']['mail'],
-            'init' => variable_get('bakery_master', '') . 'user/' . $cookie['data']['uid'] . '/edit',
+            'init' => _bakery_init_field($cookie['data']['uid']),
             'status' => 1,
             'pass' => user_password(),
           );
@@ -724,7 +729,8 @@ function bakery_login() {
         }
         else {
           // Passed all checks, create identification cookie and log in.
-          _bakery_bake_chocolatechip_cookie($account->name, $account->mail, url("user/$account->uid/edit", NULL, NULL, TRUE));
+          $init = _bakery_init_field($account->uid);
+          _bakery_bake_chocolatechip_cookie($account->name, $account->mail, $init);
           global $user;
           $user = $account;
           $edit = array('name' => $user->name);
@@ -827,6 +833,25 @@ function bakery_validate_data($data, $type = NULL) {
 }
 
 /**
+ * Name for cookie including session.cookie_secure and variable extension.
+ *
+ * @param string $type
+ *   CHOCOLATECHIP or OATMEAL, default CHOCOLATECHIP
+ * @return string
+ *   The cookie name for this environment.
+ */
+function _bakery_cookie_name($type = 'CHOCOLATECHIP') {
+  // Use different names for HTTPS and HTTP to prevent a cookie collision.
+  if (ini_get('session.cookie_secure')) {
+    $type .= 'SSL';
+  }
+  // Allow installation to modify the cookie name.
+  $extension = variable_get('bakery_cookie_extension', '');
+  $type .= $extension;
+  return $type;
+}
+
+/**
  * Function to validate cookies
  *
  * @param $type (string) CHOCOLATECHIP or OATMEAL, default CHOCOLATECHIP
@@ -835,12 +860,11 @@ function bakery_validate_data($data, $type = NULL) {
  */
 function _bakery_validate_cookie($type = 'CHOCOLATECHIP') {
   $key = variable_get('bakery_key', '');
-  // Use different names for HTTPS and HTTP to prevent a cookie collision.
-  if (ini_get('session.cookie_secure')) {
-    $type .= 'SSL';
-  }
+  $type = _bakery_cookie_name($type);
   if (!isset($_COOKIE[$type]) || !$key || !variable_get('bakery_domain', '')) {
-    return FALSE;
+    // No cookie is set or site is misconfigured. Return NULL so existing
+    // cookie is not deleted by bakery_eat_cookie().
+    return NULL;
   }
 
   if (($data = bakery_validate_data($_COOKIE[$type], $type)) !== FALSE) {
@@ -1019,12 +1043,8 @@ function _bakery_bake_chocolatechip_cookie($name, $mail, $init) {
     $cookie['master'] = variable_get('bakery_is_master', 0);
     $cookie['calories'] = 480;
     $cookie['timestamp'] = $_SERVER['REQUEST_TIME'];
-    // Use different names for HTTP and HTTPS to prevent a cookie collision.
     $cookie_secure = ini_get('session.cookie_secure');
-    $type = 'CHOCOLATECHIP';
-    if ($cookie_secure) {
-      $type .= 'SSL';
-    }
+    $type = _bakery_cookie_name('CHOCOLATECHIP');
     $cookie['type'] = $type;
     $data = bakery_bake_data($cookie);
     setcookie($type, $data, $_SERVER['REQUEST_TIME'] + variable_get('bakery_freshness', '3600'), '/', variable_get('bakery_domain', ''), (empty($cookie_secure) ? FALSE : TRUE));
@@ -1033,10 +1053,7 @@ function _bakery_bake_chocolatechip_cookie($name, $mail, $init) {
 
 function bakery_taste_oatmeal_cookie() {
   $key = variable_get('bakery_key', '');
-  $type = 'OATMEAL';
-  if (ini_get('session.cookie_secure')) {
-    $type .= 'SSL';
-  }
+  $type = _bakery_cookie_name('OATMEAL');
 
   if (!isset($_COOKIE[$type]) || !$key || !variable_get('bakery_domain', '')) {
     return FALSE;
@@ -1074,10 +1091,7 @@ function bakery_bake_oatmeal_cookie($name, $data) {
     }
     // Use different names for HTTP and HTTPS to prevent a cookie collision.
     $cookie_secure = ini_get('session.cookie_secure');
-    $type = 'OATMEAL';
-    if ($cookie_secure) {
-      $type .= 'SSL';
-    }
+    $type = _bakery_cookie_name('OATMEAL');
     $cookie['type'] = $type;
     $data = bakery_bake_data($cookie);
     setcookie($type, $data, $_SERVER['REQUEST_TIME'] + variable_get('bakery_freshness', '3600'), '/', variable_get('bakery_domain', ''), (empty($cookie_secure) ? FALSE : TRUE));
@@ -1092,7 +1106,7 @@ function bakery_eat_stroopwafel_cookie() {
   $stroopwafel = $_SESSION['bakery'];
   unset($_SESSION['bakery']);
 
-  $init = variable_get('bakery_master', 'http://drupal.org/') .'user/'. $stroopwafel['uid'] .'/edit';
+  $init = _bakery_init_field($stroopwafel['uid']);
 
   // check if the user exists.
   $account = user_load(array('init' => $init));
@@ -1136,6 +1150,8 @@ function bakery_taste_thinmint_cookie() {
     return FALSE;
   }
   $_SESSION['bakery']['name'] = $cookie['name'];
+  $_SESSION['bakery']['slave'] = $cookie['slave'];
+  $_SESSION['bakery']['uid'] = $cookie['uid'];
   return TRUE;
 }
 
@@ -1302,9 +1318,7 @@ function bakery_eat_gingerbread_cookie() {
  */
 function _bakery_eat_cookie($type = 'CHOCOLATECHIP') {
   $cookie_secure = ini_get('session.cookie_secure');
-  if ($cookie_secure) {
-    $type .= 'SSL';
-  }
+  $type = _bakery_cookie_name($type);
   setcookie($type, '', $_SERVER['REQUEST_TIME'] - 3600, '/', '', (empty($cookie_secure) ? FALSE : TRUE));
   setcookie($type, '', $_SERVER['REQUEST_TIME'] - 3600, '/', variable_get('bakery_domain', ''), (empty($cookie_secure) ? FALSE : TRUE));
 }
@@ -1580,10 +1594,7 @@ function bakery_uncrumble_submit($form_id, &$form_state) {
  * @see user_is_anonymous() in Drupal 6
  */
 function _bakery_user_is_anonymous() {
-  $type = 'OATMEAL';
-  if (ini_get('session.cookie_secure')) {
-    $type .= 'SSL';
-  }
+  $type = _bakery_cookie_name('OATMEAL');
   return isset($_COOKIE[$type]) || !$GLOBALS['user']->uid || !empty($GLOBALS['menu_admin']);
 }
 
